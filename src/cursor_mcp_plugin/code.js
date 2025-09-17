@@ -196,6 +196,10 @@ async function handleCommand(command, params) {
       return await createText(params);
     case "set_fill_color":
       return await setFillColor(params);
+    case "apply_paint_style":
+      return await applyPaintStyle(params);
+    case "apply_effect_style":
+      return await applyEffectStyle(params);
     case "set_stroke_color":
       return await setStrokeColor(params);
     case "move_node":
@@ -220,6 +224,8 @@ async function handleCommand(command, params) {
       return await setCornerRadius(params);
     case "set_text_content":
       return await setTextContent(params);
+    case "apply_text_style":
+      return await applyTextStyle(params);
     case "clone_node":
       return await cloneNode(params);
     case "scan_text_nodes":
@@ -1020,6 +1026,204 @@ async function setFillColor(params) {
   };
 }
 
+async function applyPaintStyle(params = {}) {
+  const { styleKey, nodeIds } = params;
+
+  if (typeof styleKey !== "string" || styleKey.trim() === "") {
+    throw new Error("Missing or invalid styleKey parameter");
+  }
+
+  if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+    throw new Error("Missing or invalid nodeIds parameter");
+  }
+
+  let style;
+  try {
+    style = await figma.importStyleByKeyAsync(styleKey);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to import paint style: ${message}`);
+  }
+
+  if (!style || style.type !== "PAINT") {
+    throw new Error("Provided styleKey does not reference a paint style");
+  }
+
+  const results = [];
+
+  for (const rawNodeId of nodeIds) {
+    if (typeof rawNodeId !== "string" || rawNodeId.trim() === "") {
+      results.push({
+        nodeId: typeof rawNodeId === "string" ? rawNodeId : null,
+        providedNodeId: rawNodeId,
+        success: false,
+        message: "Invalid node ID provided",
+      });
+      continue;
+    }
+
+    try {
+      const node = await figma.getNodeByIdAsync(rawNodeId);
+
+      if (!node) {
+        results.push({
+          nodeId: rawNodeId,
+          success: false,
+          message: "Node not found",
+        });
+        continue;
+      }
+
+      if (!("fillStyleId" in node)) {
+        results.push({
+          nodeId: node.id,
+          nodeName: node.name,
+          nodeType: node.type,
+          success: false,
+          message: `Node type ${node.type} does not support paint styles`,
+        });
+        continue;
+      }
+
+      node.fillStyleId = style.id;
+
+      results.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        success: true,
+        message: "Applied paint style",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        nodeId: rawNodeId,
+        success: false,
+        message,
+      });
+    }
+  }
+
+  const successCount = results.filter((entry) => entry.success).length;
+  const failureCount = results.length - successCount;
+
+  const styleInfo = {
+    id: style.id,
+    key: style.key,
+    name: style.name,
+    styleType: style.type,
+    paints: toPlainObject(style.paints),
+  };
+
+  return {
+    styleKey,
+    style: styleInfo,
+    total: results.length,
+    successCount,
+    failureCount,
+    results,
+  };
+}
+
+async function applyEffectStyle(params = {}) {
+  const { styleKey, nodeIds } = params;
+
+  if (typeof styleKey !== "string" || styleKey.trim() === "") {
+    throw new Error("Missing or invalid styleKey parameter");
+  }
+
+  if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+    throw new Error("Missing or invalid nodeIds parameter");
+  }
+
+  let style;
+  try {
+    style = await figma.importStyleByKeyAsync(styleKey);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to import effect style: ${message}`);
+  }
+
+  if (!style || style.type !== "EFFECT") {
+    throw new Error("Provided styleKey does not reference an effect style");
+  }
+
+  const results = [];
+
+  for (const rawNodeId of nodeIds) {
+    if (typeof rawNodeId !== "string" || rawNodeId.trim() === "") {
+      results.push({
+        nodeId: typeof rawNodeId === "string" ? rawNodeId : null,
+        providedNodeId: rawNodeId,
+        success: false,
+        message: "Invalid node ID provided",
+      });
+      continue;
+    }
+
+    try {
+      const node = await figma.getNodeByIdAsync(rawNodeId);
+
+      if (!node) {
+        results.push({
+          nodeId: rawNodeId,
+          success: false,
+          message: "Node not found",
+        });
+        continue;
+      }
+
+      if (!("effectStyleId" in node)) {
+        results.push({
+          nodeId: node.id,
+          nodeName: node.name,
+          nodeType: node.type,
+          success: false,
+          message: `Node type ${node.type} does not support effect styles`,
+        });
+        continue;
+      }
+
+      node.effectStyleId = style.id;
+
+      results.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        success: true,
+        message: "Applied effect style",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        nodeId: rawNodeId,
+        success: false,
+        message,
+      });
+    }
+  }
+
+  const successCount = results.filter((entry) => entry.success).length;
+  const failureCount = results.length - successCount;
+
+  const styleInfo = {
+    id: style.id,
+    key: style.key,
+    name: style.name,
+    styleType: style.type,
+    effects: toPlainObject(style.effects),
+  };
+
+  return {
+    styleKey,
+    style: styleInfo,
+    total: results.length,
+    successCount,
+    failureCount,
+    results,
+  };
+}
+
 async function setStrokeColor(params) {
   const {
     nodeId,
@@ -1172,24 +1376,35 @@ async function getStyles() {
       id: style.id,
       name: style.name,
       key: style.key,
-      paint: style.paints[0],
+      styleType: style.type,
+      paint:
+        style.paints && style.paints.length > 0
+          ? toPlainObject(style.paints[0])
+          : null,
+      paints: toPlainObject(style.paints),
     })),
     texts: styles.texts.map((style) => ({
       id: style.id,
       name: style.name,
       key: style.key,
+      styleType: style.type,
       fontSize: style.fontSize,
-      fontName: style.fontName,
+      fontName: toPlainObject(style.fontName),
+      lineHeight: style.lineHeight,
     })),
     effects: styles.effects.map((style) => ({
       id: style.id,
       name: style.name,
       key: style.key,
+      styleType: style.type,
+      effects: toPlainObject(style.effects),
     })),
     grids: styles.grids.map((style) => ({
       id: style.id,
       name: style.name,
       key: style.key,
+      styleType: style.type,
+      layoutGrids: toPlainObject(style.layoutGrids),
     })),
   };
 }
@@ -1549,6 +1764,140 @@ async function setTextContent(params) {
   } catch (error) {
     throw new Error(`Error setting text content: ${error.message}`);
   }
+}
+
+async function applyTextStyle(params = {}) {
+  const { styleKey, nodeIds } = params;
+
+  if (typeof styleKey !== "string" || styleKey.trim() === "") {
+    throw new Error("Missing or invalid styleKey parameter");
+  }
+
+  if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+    throw new Error("Missing or invalid nodeIds parameter");
+  }
+
+  let style;
+  try {
+    style = await figma.importStyleByKeyAsync(styleKey);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to import text style: ${message}`);
+  }
+
+  if (!style || style.type !== "TEXT") {
+    throw new Error("Provided styleKey does not reference a text style");
+  }
+
+  try {
+    await figma.loadFontAsync(style.fontName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load font for text style: ${message}`);
+  }
+
+  const results = [];
+
+  for (const rawNodeId of nodeIds) {
+    if (typeof rawNodeId !== "string" || rawNodeId.trim() === "") {
+      results.push({
+        nodeId: typeof rawNodeId === "string" ? rawNodeId : null,
+        providedNodeId: rawNodeId,
+        success: false,
+        message: "Invalid node ID provided",
+      });
+      continue;
+    }
+
+    try {
+      const node = await figma.getNodeByIdAsync(rawNodeId);
+
+      if (!node) {
+        results.push({
+          nodeId: rawNodeId,
+          success: false,
+          message: "Node not found",
+        });
+        continue;
+      }
+
+      if (!("textStyleId" in node)) {
+        results.push({
+          nodeId: node.id,
+          nodeName: node.name,
+          nodeType: node.type,
+          success: false,
+          message: `Node type ${node.type} does not support text styles`,
+        });
+        continue;
+      }
+
+      if (node.type === "TEXT") {
+        try {
+          if (node.fontName !== figma.mixed) {
+            await figma.loadFontAsync(node.fontName);
+          } else if (
+            typeof node.getRangeAllFontNames === "function" &&
+            node.characters &&
+            node.characters.length > 0
+          ) {
+            const fonts = node.getRangeAllFontNames(0, node.characters.length);
+            const uniqueFonts = uniqBy(
+              fonts,
+              (font) => `${font.family}:${font.style}`
+            );
+            for (const font of uniqueFonts) {
+              await figma.loadFontAsync(font);
+            }
+          }
+        } catch (fontError) {
+          console.warn(
+            `Error loading existing fonts for node ${node.id}:`,
+            fontError
+          );
+        }
+      }
+
+      node.textStyleId = style.id;
+
+      results.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        success: true,
+        message: "Applied text style",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        nodeId: rawNodeId,
+        success: false,
+        message,
+      });
+    }
+  }
+
+  const successCount = results.filter((entry) => entry.success).length;
+  const failureCount = results.length - successCount;
+
+  const styleInfo = {
+    id: style.id,
+    key: style.key,
+    name: style.name,
+    styleType: style.type,
+    fontName: toPlainObject(style.fontName),
+    fontSize: style.fontSize,
+    lineHeight: style.lineHeight,
+  };
+
+  return {
+    styleKey,
+    style: styleInfo,
+    total: results.length,
+    successCount,
+    failureCount,
+    results,
+  };
 }
 
 // Initialize settings on load
