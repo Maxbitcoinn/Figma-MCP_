@@ -965,16 +965,22 @@ server.tool(
 // Get Local Components Tool
 server.tool(
   "get_local_components",
-  "Get all local components from the Figma document",
+  "List all local components and component sets in the current Figma document. The response includes component descriptions, dimensions, component property definitions, variant properties, and component-set metadata (id, name, key, variantPropertyOptions) for grouping variants.",
   {},
   async () => {
     try {
       const result = await sendCommandToFigma("get_local_components");
+      const documentation = [
+        "Response structure:",
+        "- count: Total number of local components discovered.",
+        "- componentSets: Array of component-set metadata { id, name, key, variantPropertyOptions }.",
+        "- components: Array with each component's id, name, key, description, width, height, componentPropertyDefinitions, variantProperties, and an optional componentSet reference.",
+      ].join("\n");
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result)
+            text: `${documentation}\n\n${JSON.stringify(result, null, 2)}`
           }
         ]
       };
