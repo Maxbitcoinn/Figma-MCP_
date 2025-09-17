@@ -188,6 +188,8 @@ async function handleCommand(command, params) {
       return await getNodesInfo(params.nodeIds);
     case "read_my_design":
       return await readMyDesign();
+    case "create_component_from_selection":
+      return await createComponentFromSelection(params);
     case "create_rectangle":
       return await createRectangle(params);
     case "create_frame":
@@ -720,6 +722,220 @@ async function readMyDesign() {
   } catch (error) {
     throw new Error(`Error getting nodes info: ${error.message}`);
   }
+}
+
+async function createComponentFromSelection(params) {
+  const {
+    name = "New Component",
+    description = "",
+    variantProperties,
+    targetComponentSetId,
+  } = params || {};
+
+  const selection = figma.currentPage.selection;
+
+  if (!selection || selection.length === 0) {
+    throw new Error("Cannot create a component because the selection is empty.");
+  }
+
+  const nodes = selection.slice();
+  const selectionSet = new Set(nodes);
+
+  const getAbsolutePosition = (node) => {
+    const transform = node.absoluteTransform;
+    return {
+      x: transform[0][2],
+      y: transform[1][2],
+    };
+  };
+
+  const getAbsoluteBounds = (node) => {
+    if ("absoluteRenderBounds" in node && node.absoluteRenderBounds) {
+      const bounds = node.absoluteRenderBounds;
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    }
+
+    const position = getAbsolutePosition(node);
+    const width = "width" in node ? node.width : 0;
+    const height = "height" in node ? node.height : 0;
+
+    return {
+      x: position.x,
+      y: position.y,
+      width,
+      height,
+    };
+  };
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const node of nodes) {
+    const bounds = getAbsoluteBounds(node);
+    minX = Math.min(minX, bounds.x);
+    minY = Math.min(minY, bounds.y);
+    maxX = Math.max(maxX, bounds.x + bounds.width);
+    maxY = Math.max(maxY, bounds.y + bounds.height);
+  }
+
+  if (
+    !isFinite(minX) ||
+    !isFinite(minY) ||
+    !isFinite(maxX) ||
+    !isFinite(maxY)
+  ) {
+    throw new Error("Unable to compute bounds for the current selection.");
+  }
+
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+
+  const component = figma.createComponent();
+  component.name = name || "New Component";
+  component.description = description || "";
+
+  let parentNode = null;
+  let parentPosition = { x: 0, y: 0 };
+  let insertIndex = null;
+
+  if (!targetComponentSetId) {
+    parentNode = nodes[0].parent;
+
+    if (!parentNode || !("insertChild" in parentNode)) {
+      throw new Error(
+        "Cannot determine a parent to place the new component. Try selecting nodes with the same parent."
+      );
+    }
+
+    const shareParent = nodes.every((node) => node.parent === parentNode);
+    if (!shareParent) {
+      throw new Error(
+        "All selected nodes must share the same parent to create a component."
+      );
+    }
+
+    const parentChildren = parentNode.children || [];
+    insertIndex = parentChildren.length;
+
+    for (let i = 0; i < parentChildren.length; i++) {
+      if (selectionSet.has(parentChildren[i])) {
+        insertIndex = Math.min(insertIndex, i);
+      }
+    }
+
+    parentPosition = getAbsolutePosition(parentNode);
+  }
+
+  let nodesToMove = nodes.slice();
+  if (!targetComponentSetId && parentNode && "children" in parentNode) {
+    const parentChildren = parentNode.children;
+    nodesToMove = parentChildren.filter((child) => selectionSet.has(child));
+  }
+
+  for (const node of nodesToMove) {
+    const absolutePosition = getAbsolutePosition(node);
+    component.appendChild(node);
+    node.x = absolutePosition.x - minX;
+    node.y = absolutePosition.y - minY;
+  }
+
+  try {
+    component.resizeWithoutConstraints(width, height);
+  } catch (error) {
+    console.warn("Unable to resize component to match selection bounds:", error);
+  }
+
+  let componentSetId = null;
+
+  if (targetComponentSetId) {
+    const componentSet = await figma.getNodeByIdAsync(targetComponentSetId);
+    if (!componentSet || componentSet.type !== "COMPONENT_SET") {
+      throw new Error(
+        `Component set not found or invalid with ID: ${targetComponentSetId}`
+      );
+    }
+    componentSet.appendChild(component);
+    componentSetId = componentSet.id;
+  } else if (parentNode) {
+    if (insertIndex === null || insertIndex === undefined) {
+      parentNode.appendChild(component);
+    } else {
+      const boundedIndex = Math.max(
+        0,
+        Math.min(insertIndex, parentNode.children.length)
+      );
+      parentNode.insertChild(boundedIndex, component);
+    }
+
+    const relativeX = minX - parentPosition.x;
+    const relativeY = minY - parentPosition.y;
+    component.x = relativeX;
+    component.y = relativeY;
+
+    const referenceNode = nodesToMove[0];
+    if (referenceNode) {
+      if ("layoutAlign" in referenceNode && "layoutAlign" in component) {
+        component.layoutAlign = referenceNode.layoutAlign;
+      }
+      if ("layoutGrow" in referenceNode && "layoutGrow" in component) {
+        component.layoutGrow = referenceNode.layoutGrow;
+      }
+      if ("constraints" in referenceNode && "constraints" in component) {
+        component.constraints = { ...referenceNode.constraints };
+      }
+    }
+  } else {
+    figma.currentPage.appendChild(component);
+    component.x = minX;
+    component.y = minY;
+  }
+
+  if (
+    variantProperties &&
+    typeof variantProperties === "object" &&
+    Object.keys(variantProperties).length > 0
+  ) {
+    const normalizedVariantProperties = {};
+    for (const [key, value] of Object.entries(variantProperties)) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      normalizedVariantProperties[key] = String(value);
+    }
+
+    if (Object.keys(normalizedVariantProperties).length > 0) {
+      try {
+        component.variantProperties = normalizedVariantProperties;
+      } catch (error) {
+        console.warn("Unable to assign variant properties to component:", error);
+      }
+    }
+  }
+
+  figma.currentPage.selection = [component];
+
+  return {
+    success: true,
+    componentId: component.id,
+    componentKey: "key" in component ? component.key : null,
+    componentSetId:
+      component.parent && component.parent.type === "COMPONENT_SET"
+        ? component.parent.id
+        : componentSetId,
+    width: component.width,
+    height: component.height,
+    variantProperties:
+      "variantProperties" in component && component.variantProperties
+        ? toPlainObject(component.variantProperties)
+        : null,
+  };
 }
 
 async function createRectangle(params) {

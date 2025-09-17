@@ -188,11 +188,14 @@ The MCP server provides the following tools for interacting with Figma:
 - `get_styles` - Get information about local styles
 - `get_local_components` - Get information about local components
 - `get_team_components` - Discover published components from enabled team libraries with optional filters for library or component set metadata
+- `create_component_from_selection` - Convert the current selection into a reusable component and receive its identifiers for immediate reuse in this session (run this before instantiating new patterns)
 - `create_component_instance` - Create an instance of a component. Supply a `componentKey` from `get_local_components` (local assets) or `get_team_components` (published libraries) before invoking this tool
 - `get_instance_overrides` - Extract override properties from a selected component instance
 - `set_instance_overrides` - Apply extracted overrides to target instances
 
 When you need to instantiate a component stored in a shared library, run `get_team_components` to retrieve its `key` (optionally filtering by library or component set). With that key and the library enabled in your Figma document, call `create_component_instance` to import the remote component into the canvas.
+
+When you craft brand-new patterns directly on the canvas, call `create_component_from_selection` immediately after arranging the nodes. This captures the structure as a component so you can instantiate additional copies with `create_component_instance` without rebuilding the pattern.
 
 ### Export & Advanced
 
@@ -238,16 +241,17 @@ When working with the Figma MCP:
    - `create_text` for text elements
 5. Verify changes using `get_node_info`
 6. Use component instances when possible for consistency
-7. Handle errors appropriately as all commands can throw exceptions
-8. For large designs:
+7. Before duplicating newly created patterns, convert the selection into a component with `create_component_from_selection` so you can reuse it across the session
+8. Handle errors appropriately as all commands can throw exceptions
+9. For large designs:
    - Use chunking parameters in `scan_text_nodes`
    - Monitor progress through WebSocket updates
    - Implement appropriate error handling
-9. For text operations:
+10. For text operations:
    - Use batch operations when possible
    - Consider structural relationships
    - Verify changes with targeted exports
-10. For converting legacy annotations:
+11. For converting legacy annotations:
     - Scan text nodes to identify numbered markers and descriptions
     - Use `scan_nodes_by_types` to find UI elements that annotations refer to
     - Match markers with their target elements using path, name, or proximity
@@ -255,7 +259,7 @@ When working with the Figma MCP:
     - Create native annotations with `set_multiple_annotations` in batches
     - Verify all annotations are properly linked to their targets
     - Delete legacy annotation nodes after successful conversion
-11. Visualize prototype noodles as FigJam connectors:
+12. Visualize prototype noodles as FigJam connectors:
 
 - Use `get_reactions` to extract prototype flows,
 - set a default connector with `set_default_connector`,
