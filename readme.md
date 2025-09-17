@@ -149,7 +149,25 @@ The MCP server provides the following tools for interacting with Figma:
 - `set_default_connector` - Set a copied FigJam connector as the default connector style for creating connections (must be set before creating connections)
 - `create_connections` - Create FigJam connector lines between nodes, based on prototype flows or custom mapping
 
+### Component-first workflow
+
+Reuse what's already been published before drawing new geometry:
+
+- `get_local_components` - Audit the components defined in the current file (including variant metadata) so you can reuse them instead of rebuilding patterns.
+- `get_team_components` - Discover published components from enabled team libraries; grab keys here before instantiating remote patterns.
+- `get_styles` - List local shared styles and plan to apply them with the style tools to keep tokens consistent.
+- `apply_paint_style` - Apply a shared paint style to a set of nodes using the keys discovered above.
+- `apply_text_style` - Apply a shared text style to text nodes while keeping fonts in sync with the design system.
+- `create_component_instance` - Instantiate a component using a key from the local document or a team library; rely on this before resorting to manual rectangles or frames.
+- `get_instance_overrides` - Capture overrides from a source instance so they can be propagated safely.
+- `set_instance_overrides` - Apply captured overrides to matching instances after confirming they share the same component lineage.
+- `create_component_from_selection` - When you truly need a new pattern, wrap the selection into a component immediately for future reuse.
+
+When instantiating a shared asset, call `get_team_components` (or `get_local_components`) to capture the component key, ensure the library is enabled, and then place it with `create_component_instance`. If the library lacks what you need, build the pattern once, promote it with `create_component_from_selection`, and keep subsequent copies in sync through instances and shared styles.
+
 ### Creating Elements
+
+- Use these direct-creation tools when no reusable component or shared style fits the task.
 
 - `create_rectangle` - Create a new rectangle with position, size, and optional name
 - `create_frame` - Create a new frame with position, size, and optional name
@@ -182,20 +200,6 @@ The MCP server provides the following tools for interacting with Figma:
 - `delete_node` - Delete a node
 - `delete_multiple_nodes` - Delete multiple nodes at once efficiently
 - `clone_node` - Create a copy of an existing node with optional position offset
-
-### Components & Styles
-
-- `get_styles` - Get information about local styles
-- `get_local_components` - Get information about local components
-- `get_team_components` - Discover published components from enabled team libraries with optional filters for library or component set metadata
-- `create_component_from_selection` - Convert the current selection into a reusable component and receive its identifiers for immediate reuse in this session (run this before instantiating new patterns)
-- `create_component_instance` - Create an instance of a component. Supply a `componentKey` from `get_local_components` (local assets) or `get_team_components` (published libraries) before invoking this tool
-- `get_instance_overrides` - Extract override properties from a selected component instance
-- `set_instance_overrides` - Apply extracted overrides to target instances
-
-When you need to instantiate a component stored in a shared library, run `get_team_components` to retrieve its `key` (optionally filtering by library or component set). With that key and the library enabled in your Figma document, call `create_component_instance` to import the remote component into the canvas.
-
-When you craft brand-new patterns directly on the canvas, call `create_component_from_selection` immediately after arranging the nodes. This captures the structure as a component so you can instantiate additional copies with `create_component_instance` without rebuilding the pattern.
 
 ### Export & Advanced
 
