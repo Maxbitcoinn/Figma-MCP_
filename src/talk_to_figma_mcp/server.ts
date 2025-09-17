@@ -52,6 +52,131 @@ interface setInstanceOverridesResult {
   }>;
 }
 
+type FigmaStyleType = "PAINT" | "TEXT" | "EFFECT" | "GRID";
+
+interface FigmaComponentSetSummary {
+  id: string;
+  name: string;
+  key: string | null;
+  variantPropertyOptions: Record<string, unknown>;
+}
+
+interface FigmaComponentSummary {
+  id: string;
+  name: string;
+  key: string | null;
+  description: string;
+  width: number;
+  height: number;
+  componentPropertyDefinitions: Record<string, unknown>;
+  variantProperties: Record<string, unknown> | null;
+  componentSet: {
+    id: string;
+    name: string;
+    key: string | null;
+  } | null;
+}
+
+interface GetLocalComponentsResult {
+  count: number;
+  componentSets: FigmaComponentSetSummary[];
+  components: FigmaComponentSummary[];
+}
+
+interface TeamComponentSummary {
+  key: string;
+  name: string;
+  description: string;
+  componentSetKey: string | null;
+  libraryId: string | null;
+  libraryName: string | null;
+  documentationLinks: Array<Record<string, unknown>>;
+}
+
+interface GetTeamComponentsResult {
+  count: number;
+  components: TeamComponentSummary[];
+}
+
+interface FigmaPaintStyleSummary {
+  id: string;
+  name: string;
+  key: string;
+  styleType: "PAINT";
+  paint: unknown | null;
+  paints: unknown;
+}
+
+interface FigmaTextStyleSummary {
+  id: string;
+  name: string;
+  key: string;
+  styleType: "TEXT";
+  fontSize: number | null;
+  fontName: unknown;
+  lineHeight: unknown;
+}
+
+interface FigmaEffectStyleSummary {
+  id: string;
+  name: string;
+  key: string;
+  styleType: "EFFECT";
+  effects: unknown;
+}
+
+interface FigmaGridStyleSummary {
+  id: string;
+  name: string;
+  key: string;
+  styleType: "GRID";
+  layoutGrids: unknown;
+}
+
+interface GetStylesResult {
+  colors: FigmaPaintStyleSummary[];
+  texts: FigmaTextStyleSummary[];
+  effects: FigmaEffectStyleSummary[];
+  grids: FigmaGridStyleSummary[];
+}
+
+interface StyleApplicationResultEntry {
+  nodeId: string | null;
+  nodeName?: string;
+  nodeType?: string;
+  providedNodeId?: unknown;
+  success: boolean;
+  message: string;
+}
+
+interface StyleApplicationResult {
+  styleKey: string;
+  style: {
+    id: string;
+    key: string;
+    name: string;
+    styleType: FigmaStyleType;
+    paints?: unknown;
+    fontName?: unknown;
+    fontSize?: number | null;
+    lineHeight?: unknown;
+  };
+  total: number;
+  successCount: number;
+  failureCount: number;
+  results: StyleApplicationResultEntry[];
+}
+
+interface CreateComponentInstanceResult {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  componentId: string;
+}
+
 // Custom logging functions that write to stderr instead of stdout to avoid being captured
 const logger = {
   info: (message: string) => process.stderr.write(`[INFO] ${message}\n`),
@@ -939,14 +1064,52 @@ server.tool(
   {},
   async () => {
     try {
-      const result = await sendCommandToFigma("get_styles");
+      const result = await sendCommandToFigma("get_styles") as GetStylesResult;
+
+      const summarySections = [
+        "Local shared styles summary:",
+        `- Paint styles: ${result.colors.length}`,
+        `- Text styles: ${result.texts.length}`,
+        `- Effect styles: ${result.effects.length}`,
+        `- Grid styles: ${result.grids.length}`,
+      ];
+
+      const highlightLines: string[] = [];
+      if (result.colors.length > 0) {
+        highlightLines.push(
+          `Top paint styles: ${result.colors
+            .slice(0, 5)
+            .map((style) => `${style.name} (${style.key})`)
+            .join(", ")}`
+        );
+      }
+      if (result.texts.length > 0) {
+        highlightLines.push(
+          `Top text styles: ${result.texts
+            .slice(0, 5)
+            .map((style) => `${style.name} (${style.key})`)
+            .join(", ")}`
+        );
+      }
+
+      const limitedResult: GetStylesResult = {
+        colors: result.colors.slice(0, 5),
+        texts: result.texts.slice(0, 5),
+        effects: result.effects.slice(0, 5),
+        grids: result.grids.slice(0, 5),
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result)
-          }
-        ]
+            text: [...summarySections, ...highlightLines].join("\n"),
+          },
+          {
+            type: "text",
+            text: `Showing up to five entries per style category.\n\n${JSON.stringify(limitedResult, null, 2)}`,
+          },
+        ],
       };
     } catch (error) {
       return {
@@ -978,12 +1141,37 @@ server.tool(
       const result = await sendCommandToFigma("apply_paint_style", {
         styleKey,
         nodeIds,
-      });
+      }) as StyleApplicationResult;
+
+      const summaryLines = [
+        `Applied paint style "${result.style.name}" (${result.style.key}) to ${result.successCount}/${result.total} nodes.`,
+      ];
+
+      if (result.failureCount > 0) {
+        const failureDetails = result.results
+          .filter((entry) => !entry.success)
+          .slice(0, 5)
+          .map((entry) => {
+            const identifier = entry.nodeName || entry.nodeId || String(entry.providedNodeId ?? "unknown node");
+            return `${identifier}: ${entry.message}`;
+          });
+        summaryLines.push(`Failures (${result.failureCount}): ${failureDetails.join("; ")}`);
+      }
+
+      const limitedResult: StyleApplicationResult = {
+        ...result,
+        results: result.results.slice(0, 10),
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result),
+            text: summaryLines.join("\n"),
+          },
+          {
+            type: "text",
+            text: `Previewing up to 10 paint-style applications.\n\n${JSON.stringify(limitedResult, null, 2)}`,
           },
         ],
       };
@@ -1018,12 +1206,37 @@ server.tool(
       const result = await sendCommandToFigma("apply_text_style", {
         styleKey,
         nodeIds,
-      });
+      }) as StyleApplicationResult;
+
+      const summaryLines = [
+        `Applied text style "${result.style.name}" (${result.style.key}) to ${result.successCount}/${result.total} nodes.`,
+      ];
+
+      if (result.failureCount > 0) {
+        const failureDetails = result.results
+          .filter((entry) => !entry.success)
+          .slice(0, 5)
+          .map((entry) => {
+            const identifier = entry.nodeName || entry.nodeId || String(entry.providedNodeId ?? "unknown node");
+            return `${identifier}: ${entry.message}`;
+          });
+        summaryLines.push(`Failures (${result.failureCount}): ${failureDetails.join("; ")}`);
+      }
+
+      const limitedResult: StyleApplicationResult = {
+        ...result,
+        results: result.results.slice(0, 10),
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result),
+            text: summaryLines.join("\n"),
+          },
+          {
+            type: "text",
+            text: `Previewing up to 10 text-style applications.\n\n${JSON.stringify(limitedResult, null, 2)}`,
           },
         ],
       };
@@ -1089,20 +1302,53 @@ server.tool(
   {},
   async () => {
     try {
-      const result = await sendCommandToFigma("get_local_components");
-      const documentation = [
-        "Response structure:",
-        "- count: Total number of local components discovered.",
-        "- componentSets: Array of component-set metadata { id, name, key, variantPropertyOptions }.",
-        "- components: Array with each component's id, name, key, description, width, height, componentPropertyDefinitions, variantProperties, and an optional componentSet reference.",
-      ].join("\n");
+      const result = await sendCommandToFigma("get_local_components") as GetLocalComponentsResult;
+
+      const componentSetHighlights = result.componentSets
+        .slice(0, 5)
+        .map((componentSet) => `${componentSet.name} (${Object.keys(componentSet.variantPropertyOptions).length} variant groups)`);
+
+      const componentHighlights = result.components
+        .slice(0, 10)
+        .map((component) => {
+          const variantSummary = component.variantProperties
+            ? `variants: ${Object.values(component.variantProperties)
+                .map((value) => String(value))
+                .join(", ")}`
+            : "no variants";
+          return `${component.name}${component.key ? ` [${component.key}]` : ""} – ${variantSummary}`;
+        });
+
+      const summaryLines = [
+        `Discovered ${result.count} local components across ${result.componentSets.length} component sets.`,
+        "Review these before creating new UI manually so you can reuse existing building blocks and keep styles consistent.",
+      ];
+
+      if (componentSetHighlights.length > 0) {
+        summaryLines.push(`Component sets (showing up to 5): ${componentSetHighlights.join(", ")}`);
+      }
+
+      if (componentHighlights.length > 0) {
+        summaryLines.push(`Example components (showing up to 10): ${componentHighlights.join("; ")}`);
+      }
+
+      const limitedResult: GetLocalComponentsResult = {
+        count: result.count,
+        componentSets: result.componentSets.slice(0, 5),
+        components: result.components.slice(0, 10),
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: `${documentation}\n\n${JSON.stringify(result, null, 2)}`
-          }
-        ]
+            text: summaryLines.join("\n"),
+          },
+          {
+            type: "text",
+            text: `Showing a truncated preview of local components. Request additional details with targeted follow-up queries.\n\n${JSON.stringify(limitedResult, null, 2)}`,
+          },
+        ],
       };
     } catch (error) {
       return {
@@ -1142,20 +1388,35 @@ server.tool(
         libraryId,
         libraryName,
         componentSetKey,
-      });
+      }) as GetTeamComponentsResult;
 
-      const documentation = [
-        "Response structure:",
-        "- count: Total number of matching published components.",
-        "- components: Array of metadata with key, name, description, componentSetKey, libraryId, libraryName, and documentationLinks.",
-        "Use the component key with create_component_instance to import remote instances once the library is enabled in Figma.",
-      ].join("\n");
+      const componentHighlights = result.components
+        .slice(0, 10)
+        .map((component) => `${component.name} (${component.key})${component.libraryName ? ` – ${component.libraryName}` : ""}`);
+
+      const summaryLines = [
+        `Found ${result.count} published components that match the current filters.`,
+        "Use these keys with create_component_instance and shared style tools before falling back to manual drawing.",
+      ];
+
+      if (componentHighlights.length > 0) {
+        summaryLines.push(`Highlighted components (showing up to 10): ${componentHighlights.join("; ")}`);
+      }
+
+      const limitedResult: GetTeamComponentsResult = {
+        count: result.count,
+        components: result.components.slice(0, 10),
+      };
 
       return {
         content: [
           {
             type: "text",
-            text: `${documentation}\n\n${JSON.stringify(result, null, 2)}`,
+            text: summaryLines.join("\n"),
+          },
+          {
+            type: "text",
+            text: `Showing the first 10 matching library components. Refine filters for targeted results.\n\n${JSON.stringify(limitedResult, null, 2)}`,
           },
         ],
       };
@@ -1493,7 +1754,7 @@ server.tool(
 // Create Component Instance Tool
 server.tool(
   "create_component_instance",
-  "Create an instance of a component in Figma",
+  "Instantiate a component that you've already identified with get_local_components or get_team_components. Prefer reusing these shared building blocks and adjust visuals with apply_paint_style/apply_text_style instead of drawing new rectangles.",
   {
     componentKey: z.string().describe("Key of the component to instantiate"),
     x: z.number().describe("X position"),
@@ -1506,15 +1767,32 @@ server.tool(
         x,
         y,
       });
-      const typedResult = result as any;
+      const typedResult = result as CreateComponentInstanceResult;
+      const summaryLines = [
+        `Created component instance "${typedResult.name}" (${typedResult.id}) at (${typedResult.x}, ${typedResult.y}).`,
+        `Component origin: ${typedResult.componentId}. Apply shared styles rather than detaching instances whenever possible.`,
+      ];
+
+      const preview = {
+        componentKey,
+        instanceId: typedResult.id,
+        componentId: typedResult.componentId,
+        placement: { x: typedResult.x, y: typedResult.y },
+        dimensions: { width: typedResult.width, height: typedResult.height },
+      };
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(typedResult),
-          }
-        ]
-      }
+            text: summaryLines.join("\n"),
+          },
+          {
+            type: "text",
+            text: `Instance metadata:\n${JSON.stringify(preview, null, 2)}`,
+          },
+        ],
+      };
     } catch (error) {
       return {
         content: [
@@ -1569,7 +1847,7 @@ server.tool(
 // Set Instance Overrides Tool
 server.tool(
   "set_instance_overrides",
-  "Apply previously copied overrides to selected component instances. Target instances will be swapped to the source component and all copied override properties will be applied.",
+  "Apply previously copied overrides to selected component instances. Confirm the targets come from get_local_components or get_team_components and lean on shared styles first—use overrides after ensuring components match.",
   {
     sourceInstanceId: z.string().describe("ID of the source component instance"),
     targetNodeIds: z.array(z.string()).describe("Array of target instance IDs. Currently selected instances will be used.")
@@ -1588,7 +1866,7 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Successfully applied ${typedResult.totalCount || 0} overrides to ${successCount} instances.`
+              text: `Successfully applied ${typedResult.totalCount || 0} overrides to ${successCount} instances. Verify shared styles afterwards instead of detaching these components.`
             }
           ]
         };
@@ -1674,17 +1952,22 @@ server.prompt(
             type: "text",
             text: `When working with Figma designs, follow these best practices:
 
-1. Start with Document Structure:
+1. Reuse Components & Shared Styles First:
+   - Run get_local_components() to inspect existing document components and get_team_components() to browse enabled libraries before drawing anything new.
+   - Pull available shared styles with get_styles() and apply them via apply_paint_style()/apply_text_style() to keep design tokens consistent.
+   - Only create new geometry with create_frame(), create_rectangle(), or create_text() when no suitable component exists, and convert fresh patterns using create_component_from_selection().
+
+2. Start with Document Structure:
    - First use get_document_info() to understand the current document
    - Plan your layout hierarchy before creating elements
    - Create a main container frame for each screen/section
 
-2. Naming Conventions:
+3. Naming Conventions:
    - Use descriptive, semantic names for all elements
    - Follow a consistent naming pattern (e.g., "Login Screen", "Logo Container", "Email Input")
    - Group related elements with meaningful names
 
-3. Layout Hierarchy:
+4. Layout Hierarchy:
    - Create parent frames first, then add child elements
    - For forms/login screens:
      * Start with the main screen container frame
@@ -1693,23 +1976,23 @@ server.prompt(
      * Place action buttons (login, submit) after inputs
      * Add secondary elements (forgot password, signup links) last
 
-4. Input Fields Structure:
+5. Input Fields Structure:
    - Create a container frame for each input field
    - Include a label text above or inside the input
    - Group related inputs (e.g., username/password) together
 
-5. Element Creation:
-   - Use create_frame() for containers and input fields
+6. Element Creation:
+   - Use create_frame() for containers and input fields when a reusable component is unavailable
    - Use create_text() for labels, buttons text, and links
    - Set appropriate colors and styles:
      * Use fillColor for backgrounds
      * Use strokeColor for borders
      * Set proper fontWeight for different text elements
 
-6. Mofifying existing elements:
-  - use set_text_content() to modify text content.
+7. Modifying existing elements:
+   - Use set_text_content() to modify text content without detaching instances.
 
-7. Visual Hierarchy:
+8. Visual Hierarchy:
    - Position elements in logical reading order (top to bottom)
    - Maintain consistent spacing between elements
    - Use appropriate font sizes for different text types:
@@ -1718,7 +2001,7 @@ server.prompt(
      * Standard for button text
      * Smaller for helper text/links
 
-8. Best Practices:
+9. Best Practices:
    - Verify each creation with get_node_info()
    - Use parentId to maintain proper hierarchy
    - Group related elements together in frames
