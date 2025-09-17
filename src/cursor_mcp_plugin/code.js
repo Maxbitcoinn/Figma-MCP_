@@ -7,6 +7,73 @@ const state = {
 };
 
 
+function toPlainObject(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toPlainObject(item));
+  }
+
+  if (value instanceof Map) {
+    return Object.fromEntries(
+      Array.from(value.entries(), ([key, entryValue]) => [
+        key,
+        toPlainObject(entryValue),
+      ])
+    );
+  }
+
+  if (typeof value === "object") {
+    const plainObject = {};
+
+    for (const [key, entryValue] of Object.entries(value)) {
+      plainObject[key] = toPlainObject(entryValue);
+    }
+
+    return plainObject;
+  }
+
+  return value;
+}
+
+function serializeComponentProperties(component) {
+  if (
+    !component ||
+    !("componentPropertyDefinitions" in component) ||
+    !component.componentPropertyDefinitions
+  ) {
+    return {};
+  }
+
+  return toPlainObject(component.componentPropertyDefinitions);
+}
+
+function serializeVariantProperties(variantProperties) {
+  if (!variantProperties) {
+    return null;
+  }
+
+  return toPlainObject(variantProperties);
+}
+
+function serializeComponentSetMetadata(componentSet) {
+  const variantGroupProperties =
+    "variantGroupProperties" in componentSet &&
+    componentSet.variantGroupProperties
+      ? componentSet.variantGroupProperties
+      : {};
+
+  return {
+    id: componentSet.id,
+    name: componentSet.name,
+    key: "key" in componentSet ? componentSet.key : null,
+    variantPropertyOptions: toPlainObject(variantGroupProperties),
+  };
+}
+
+
 // Helper function for progress updates
 function sendProgressUpdate(
   commandId,
@@ -1130,17 +1197,59 @@ async function getStyles() {
 async function getLocalComponents() {
   await figma.loadAllPagesAsync();
 
-  const components = figma.root.findAllWithCriteria({
+  const componentNodes = figma.root.findAllWithCriteria({
     types: ["COMPONENT"],
+  });
+  const componentSetNodes = figma.root.findAllWithCriteria({
+    types: ["COMPONENT_SET"],
+  });
+
+  const componentSets = componentSetNodes.map((componentSet) =>
+    serializeComponentSetMetadata(componentSet)
+  );
+  const componentSetById = new Map(
+    componentSets.map((componentSet) => [componentSet.id, componentSet])
+  );
+
+  const components = componentNodes.map((component) => {
+    let componentSetInfo = null;
+
+    if (component.parent && component.parent.type === "COMPONENT_SET") {
+      componentSetInfo = componentSetById.get(component.parent.id);
+
+      if (!componentSetInfo) {
+        componentSetInfo = serializeComponentSetMetadata(component.parent);
+        componentSetById.set(componentSetInfo.id, componentSetInfo);
+        componentSets.push(componentSetInfo);
+      }
+    }
+
+    return {
+      id: component.id,
+      name: component.name,
+      key: "key" in component ? component.key : null,
+      description:
+        "description" in component && typeof component.description === "string"
+          ? component.description
+          : "",
+      width: component.width,
+      height: component.height,
+      componentPropertyDefinitions: serializeComponentProperties(component),
+      variantProperties: serializeVariantProperties(component.variantProperties),
+      componentSet: componentSetInfo
+        ? {
+            id: componentSetInfo.id,
+            name: componentSetInfo.name,
+            key: componentSetInfo.key,
+          }
+        : null,
+    };
   });
 
   return {
     count: components.length,
-    components: components.map((component) => ({
-      id: component.id,
-      name: component.name,
-      key: "key" in component ? component.key : null,
-    })),
+    componentSets,
+    components,
   };
 }
 
