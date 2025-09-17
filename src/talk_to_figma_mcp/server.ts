@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { URL } from "node:url";
 import { z } from "zod";
 import WebSocket from "ws";
 import { v4 as uuidv4 } from "uuid";
@@ -198,6 +199,60 @@ const pendingRequests = new Map<string, {
 // Track which channel each client is in
 let currentChannel: string | null = null;
 
+interface ParsedServerConfig {
+  url: URL;
+  isLoopback: boolean;
+  hasExplicitPort: boolean;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname.startsWith("127.") ||
+    hostname === "::1"
+  );
+}
+
+function parseServerArgument(rawValue?: string): ParsedServerConfig {
+  const trimmedValue = rawValue?.trim();
+  const effectiveValue = trimmedValue && trimmedValue.length > 0 ? trimmedValue : "localhost";
+
+  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(effectiveValue);
+
+  if (hasScheme) {
+    const url = new URL(effectiveValue);
+
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      throw new Error(`Unsupported protocol for --server. Use ws:// or wss:// (received ${url.protocol || "unknown"}).`);
+    }
+
+    return {
+      url,
+      isLoopback: isLoopbackHostname(url.hostname),
+      hasExplicitPort: url.port !== "",
+    };
+  }
+
+  let tentativeUrl: URL;
+
+  try {
+    tentativeUrl = new URL(`ws://${effectiveValue}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid --server value "${effectiveValue}": ${message}`);
+  }
+
+  const loopback = isLoopbackHostname(tentativeUrl.hostname);
+  tentativeUrl.protocol = loopback ? "ws:" : "wss:";
+
+  return {
+    url: tentativeUrl,
+    isLoopback: loopback,
+    hasExplicitPort: tentativeUrl.port !== "",
+  };
+}
+
 // Create MCP server
 const server = new McpServer({
   name: "TalkToFigmaMCP",
@@ -207,8 +262,21 @@ const server = new McpServer({
 // Add command line argument parsing
 const args = process.argv.slice(2);
 const serverArg = args.find(arg => arg.startsWith('--server='));
-const serverUrl = serverArg ? serverArg.split('=')[1] : 'localhost';
-const WS_URL = serverUrl === 'localhost' ? `ws://${serverUrl}` : `wss://${serverUrl}`;
+const serverInput = serverArg ? serverArg.split('=', 2)[1] : undefined;
+
+let parsedServerConfig: ParsedServerConfig;
+
+try {
+  parsedServerConfig = parseServerArgument(serverInput);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error(`Failed to parse --server value: ${message}`);
+  process.exit(1);
+}
+
+const baseServerUrl = parsedServerConfig.url;
+const isLoopbackServer = parsedServerConfig.isLoopback;
+const serverHasExplicitPort = parsedServerConfig.hasExplicitPort;
 
 // Document Info Tool
 server.tool(
@@ -3478,7 +3546,13 @@ function connectToFigma(port: number = 3055) {
     return;
   }
 
-  const wsUrl = serverUrl === 'localhost' ? `${WS_URL}:${port}` : WS_URL;
+  const connectionUrl = new URL(baseServerUrl.toString());
+
+  if (!serverHasExplicitPort && isLoopbackServer) {
+    connectionUrl.port = String(port);
+  }
+
+  const wsUrl = connectionUrl.toString();
   logger.info(`Connecting to Figma socket server at ${wsUrl}...`);
   ws = new WebSocket(wsUrl);
 
@@ -3545,21 +3619,18 @@ function connectToFigma(port: number = 3055) {
       logger.log('myResponse' + JSON.stringify(myResponse));
 
       // Handle response to a request
-      if (
-        myResponse.id &&
-        pendingRequests.has(myResponse.id) &&
-        myResponse.result
-      ) {
+      if (myResponse?.id && pendingRequests.has(myResponse.id)) {
         const request = pendingRequests.get(myResponse.id)!;
         clearTimeout(request.timeout);
 
         if (myResponse.error) {
           logger.error(`Error from Figma: ${myResponse.error}`);
-          request.reject(new Error(myResponse.error));
+          request.reject(new Error(typeof myResponse.error === "string" ? myResponse.error : JSON.stringify(myResponse.error)));
+        } else if (Object.prototype.hasOwnProperty.call(myResponse, "result")) {
+          request.resolve(myResponse.result);
         } else {
-          if (myResponse.result) {
-            request.resolve(myResponse.result);
-          }
+          logger.warn(`Received response ${myResponse.id} without result or error`);
+          request.reject(new Error("Figma response did not include a result payload."));
         }
 
         pendingRequests.delete(myResponse.id);
