@@ -332,18 +332,44 @@ server.tool(
   }
 );
 
-function rgbaToHex(color: any): string {
-  // skip if color is already hex
-  if (color.startsWith('#')) {
+function rgbaToHex(color: unknown): string | undefined {
+  if (typeof color === "string") {
     return color;
   }
 
-  const r = Math.round(color.r * 255);
-  const g = Math.round(color.g * 255);
-  const b = Math.round(color.b * 255);
-  const a = Math.round(color.a * 255);
+  if (
+    color &&
+    typeof color === "object" &&
+    "r" in color &&
+    "g" in color &&
+    "b" in color
+  ) {
+    const { r, g, b, a } = color as {
+      r: unknown;
+      g: unknown;
+      b: unknown;
+      a?: unknown;
+    };
 
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}${a === 255 ? '' : a.toString(16).padStart(2, '0')}`;
+    if (
+      typeof r === "number" &&
+      typeof g === "number" &&
+      typeof b === "number"
+    ) {
+      const toHex = (value: number) =>
+        Math.round(Math.max(0, Math.min(1, value)) * 255)
+          .toString(16)
+          .padStart(2, "0");
+
+      const alpha = typeof a === "number" ? a : 1;
+      const alphaHex = toHex(alpha);
+      const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+
+      return alphaHex === "ff" ? hex : `${hex}${alphaHex}`;
+    }
+  }
+
+  return undefined;
 }
 
 function filterFigmaNode(node: any) {
@@ -372,7 +398,10 @@ function filterFigmaNode(node: any) {
           const processedStop = { ...stop };
           // Convert color to hex if present
           if (processedStop.color) {
-            processedStop.color = rgbaToHex(processedStop.color);
+            const convertedColor = rgbaToHex(processedStop.color);
+            if (typeof convertedColor === "string") {
+              processedStop.color = convertedColor;
+            }
           }
           // Remove boundVariables
           delete processedStop.boundVariables;
@@ -382,7 +411,10 @@ function filterFigmaNode(node: any) {
 
       // Convert solid fill colors to hex
       if (processedFill.color) {
-        processedFill.color = rgbaToHex(processedFill.color);
+        const convertedColor = rgbaToHex(processedFill.color);
+        if (typeof convertedColor === "string") {
+          processedFill.color = convertedColor;
+        }
       }
 
       return processedFill;
@@ -396,7 +428,10 @@ function filterFigmaNode(node: any) {
       delete processedStroke.boundVariables;
       // Convert color to hex if present
       if (processedStroke.color) {
-        processedStroke.color = rgbaToHex(processedStroke.color);
+        const convertedColor = rgbaToHex(processedStroke.color);
+        if (typeof convertedColor === "string") {
+          processedStroke.color = convertedColor;
+        }
       }
       return processedStroke;
     });
