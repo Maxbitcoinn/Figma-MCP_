@@ -210,8 +210,8 @@ async function handleCommand(command, params) {
       return await getStyles();
     case "get_local_components":
       return await getLocalComponents();
-    // case "get_team_components":
-    //   return await getTeamComponents();
+    case "get_team_components":
+      return await getTeamComponents(params);
     case "create_component_instance":
       return await createComponentInstance(params);
     case "export_node_as_image":
@@ -1253,24 +1253,75 @@ async function getLocalComponents() {
   };
 }
 
-// async function getTeamComponents() {
-//   try {
-//     const teamComponents =
-//       await figma.teamLibrary.getAvailableComponentsAsync();
+async function getTeamComponents(params = {}) {
+  const filterParams =
+    params && typeof params === "object" ? params : {};
+  const { libraryId, libraryName, componentSetKey } = filterParams;
 
-//     return {
-//       count: teamComponents.length,
-//       components: teamComponents.map((component) => ({
-//         key: component.key,
-//         name: component.name,
-//         description: component.description,
-//         libraryName: component.libraryName,
-//       })),
-//     };
-//   } catch (error) {
-//     throw new Error(`Error getting team components: ${error.message}`);
-//   }
-// }
+  try {
+    const teamComponents = await figma.teamLibrary.getAvailableComponentsAsync();
+
+    let filteredComponents = teamComponents;
+
+    if (libraryId) {
+      filteredComponents = filteredComponents.filter(
+        (component) => "libraryId" in component && component.libraryId === libraryId
+      );
+    }
+
+    if (libraryName) {
+      const normalizedLibraryName = libraryName.toLowerCase();
+      filteredComponents = filteredComponents.filter((component) => {
+        if (!("libraryName" in component) || !component.libraryName) {
+          return false;
+        }
+
+        return component.libraryName.toLowerCase() === normalizedLibraryName;
+      });
+    }
+
+    if (componentSetKey) {
+      filteredComponents = filteredComponents.filter(
+        (component) =>
+          "componentSetKey" in component &&
+          component.componentSetKey === componentSetKey
+      );
+    }
+
+    const components = filteredComponents.map((component) => ({
+      key: component.key,
+      name: component.name,
+      description:
+        typeof component.description === "string" ? component.description : "",
+      componentSetKey:
+        "componentSetKey" in component && component.componentSetKey
+          ? component.componentSetKey
+          : null,
+      libraryId:
+        "libraryId" in component && component.libraryId
+          ? component.libraryId
+          : null,
+      libraryName:
+        "libraryName" in component && component.libraryName
+          ? component.libraryName
+          : null,
+      documentationLinks: component.documentationLinks
+        ? toPlainObject(component.documentationLinks)
+        : [],
+    }));
+
+    return {
+      count: components.length,
+      components,
+    };
+  } catch (error) {
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? error.message
+        : String(error);
+    throw new Error(`Error getting team components: ${message}`);
+  }
+}
 
 async function createComponentInstance(params) {
   const { componentKey, x = 0, y = 0 } = params || {};
