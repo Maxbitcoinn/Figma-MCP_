@@ -8,9 +8,6 @@
     "figma",
     "figjam"
   ],
-  "permissions": [
-    "teamLibrary"
-  ],
   "networkAccess": {
     "allowedDomains": [
       "https://google.com"
