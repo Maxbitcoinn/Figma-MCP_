@@ -962,6 +962,126 @@ server.tool(
   }
 );
 
+// Apply Paint Style Tool
+server.tool(
+  "apply_paint_style",
+  "Apply a paint style to one or more nodes using a shared style key",
+  {
+    styleKey: z.string().describe("The style key of the paint style to apply"),
+    nodeIds: z
+      .array(z.string())
+      .nonempty()
+      .describe("IDs of nodes that should receive the paint style"),
+  },
+  async ({ styleKey, nodeIds }: any) => {
+    try {
+      const result = await sendCommandToFigma("apply_paint_style", {
+        styleKey,
+        nodeIds,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error applying paint style: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Apply Text Style Tool
+server.tool(
+  "apply_text_style",
+  "Apply a text style to one or more text nodes using a shared style key",
+  {
+    styleKey: z.string().describe("The style key of the text style to apply"),
+    nodeIds: z
+      .array(z.string())
+      .nonempty()
+      .describe("IDs of text nodes that should receive the text style"),
+  },
+  async ({ styleKey, nodeIds }: any) => {
+    try {
+      const result = await sendCommandToFigma("apply_text_style", {
+        styleKey,
+        nodeIds,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error applying text style: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Apply Effect Style Tool
+server.tool(
+  "apply_effect_style",
+  "Apply an effect style to one or more nodes using a shared style key",
+  {
+    styleKey: z.string().describe("The style key of the effect style to apply"),
+    nodeIds: z
+      .array(z.string())
+      .nonempty()
+      .describe("IDs of nodes that should receive the effect style"),
+  },
+  async ({ styleKey, nodeIds }: any) => {
+    try {
+      const result = await sendCommandToFigma("apply_effect_style", {
+        styleKey,
+        nodeIds,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error applying effect style: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  }
+);
+
 // Get Local Components Tool
 server.tool(
   "get_local_components",
@@ -2680,6 +2800,8 @@ type FigmaCommand =
   | "create_frame"
   | "create_text"
   | "set_fill_color"
+  | "apply_paint_style"
+  | "apply_effect_style"
   | "set_stroke_color"
   | "move_node"
   | "resize_node"
@@ -2696,6 +2818,7 @@ type FigmaCommand =
   | "set_corner_radius"
   | "clone_node"
   | "set_text_content"
+  | "apply_text_style"
   | "scan_text_nodes"
   | "set_multiple_text_contents"
   | "get_annotations"
@@ -2753,6 +2876,14 @@ type CommandParams = {
     g: number;
     b: number;
     a?: number;
+  };
+  apply_paint_style: {
+    styleKey: string;
+    nodeIds: string[];
+  };
+  apply_effect_style: {
+    styleKey: string;
+    nodeIds: string[];
   };
   set_stroke_color: {
     nodeId: string;
@@ -2821,6 +2952,10 @@ type CommandParams = {
   set_text_content: {
     nodeId: string;
     text: string;
+  };
+  apply_text_style: {
+    styleKey: string;
+    nodeIds: string[];
   };
   scan_text_nodes: {
     nodeId: string;
