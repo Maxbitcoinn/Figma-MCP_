@@ -1376,6 +1376,120 @@ server.tool(
   }
 );
 
+// Create Component From Selection Tool
+server.tool(
+  "create_component_from_selection",
+  "Convert the current selection into a reusable component that can be instantiated again during this session",
+  {
+    name: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Name for the component that will be created"),
+    description: z
+      .string()
+      .optional()
+      .describe("Optional description to store on the component"),
+    variantProperties: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        "Variant property key/value pairs to assign when attaching to an existing component set"
+      ),
+    componentSetId: z
+      .string()
+      .optional()
+      .describe("ID of the component set to attach the new component to"),
+  },
+  async ({
+    name,
+    description,
+    variantProperties,
+    componentSetId,
+  }: any) => {
+    try {
+      const payload: Record<string, unknown> = {};
+
+      if (name) {
+        payload.name = name;
+      }
+      if (description !== undefined) {
+        payload.description = description;
+      }
+      if (variantProperties) {
+        payload.variantProperties = variantProperties;
+      }
+      if (componentSetId) {
+        payload.targetComponentSetId = componentSetId;
+      }
+
+      const result = await sendCommandToFigma(
+        "create_component_from_selection",
+        payload
+      );
+
+      const typedResult = result as {
+        success?: boolean;
+        componentId?: string;
+        componentKey?: string | null;
+        componentSetId?: string | null;
+        width?: number;
+        height?: number;
+        variantProperties?: Record<string, string> | null;
+      };
+
+      const summaryParts = [] as string[];
+      if (typedResult.componentId) {
+        summaryParts.push(`Component ID: ${typedResult.componentId}`);
+      }
+      if (typedResult.componentKey) {
+        summaryParts.push(`Key: ${typedResult.componentKey}`);
+      }
+      if (typedResult.componentSetId) {
+        summaryParts.push(`Component Set: ${typedResult.componentSetId}`);
+      }
+      if (typedResult.width !== undefined && typedResult.height !== undefined) {
+        summaryParts.push(
+          `Size: ${Math.round(typedResult.width)}×${Math.round(typedResult.height)}`
+        );
+      }
+
+      const summaryText = summaryParts.length
+        ? summaryParts.join(" | ")
+        : JSON.stringify(typedResult);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              typedResult.success === false
+                ? JSON.stringify(typedResult)
+                : `Created component from selection${
+                    summaryText ? ` (${summaryText})` : ""
+                  }`,
+          },
+          {
+            type: "text",
+            text: JSON.stringify(typedResult),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error creating component from selection: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  }
+);
+
 // Create Component Instance Tool
 server.tool(
   "create_component_instance",
@@ -1609,6 +1723,7 @@ server.prompt(
    - Use parentId to maintain proper hierarchy
    - Group related elements together in frames
    - Keep consistent spacing and alignment
+   - Before instantiating additional copies of a new pattern, call create_component_from_selection() to capture the selection as a reusable component with a stable ID/key
 
 Example Login Screen Structure:
 - Login Screen (main frame)
@@ -2796,6 +2911,7 @@ type FigmaCommand =
   | "get_node_info"
   | "get_nodes_info"
   | "read_my_design"
+  | "create_component_from_selection"
   | "create_rectangle"
   | "create_frame"
   | "create_text"
@@ -2841,6 +2957,12 @@ type CommandParams = {
   get_selection: Record<string, never>;
   get_node_info: { nodeId: string };
   get_nodes_info: { nodeIds: string[] };
+  create_component_from_selection: {
+    name?: string;
+    description?: string;
+    variantProperties?: Record<string, string>;
+    targetComponentSetId?: string;
+  };
   create_rectangle: {
     x: number;
     y: number;
