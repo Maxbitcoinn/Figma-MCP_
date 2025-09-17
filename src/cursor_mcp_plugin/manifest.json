@@ -19,5 +19,8 @@
   },
   "documentAccess": "dynamic-page",
   "enableProposedApi": true,
-  "enablePrivatePluginApi": true
+  "enablePrivatePluginApi": true,
+  "permissions": [
+    "teamLibrary"
+  ]
 }
