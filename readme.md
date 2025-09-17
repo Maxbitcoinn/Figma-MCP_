@@ -187,9 +187,12 @@ The MCP server provides the following tools for interacting with Figma:
 
 - `get_styles` - Get information about local styles
 - `get_local_components` - Get information about local components
-- `create_component_instance` - Create an instance of a component
+- `get_team_components` - Discover published components from enabled team libraries with optional filters for library or component set metadata
+- `create_component_instance` - Create an instance of a component. Supply a `componentKey` from `get_local_components` (local assets) or `get_team_components` (published libraries) before invoking this tool
 - `get_instance_overrides` - Extract override properties from a selected component instance
 - `set_instance_overrides` - Apply extracted overrides to target instances
+
+When you need to instantiate a component stored in a shared library, run `get_team_components` to retrieve its `key` (optionally filtering by library or component set). With that key and the library enabled in your Figma document, call `create_component_instance` to import the remote component into the canvas.
 
 ### Export & Advanced
 

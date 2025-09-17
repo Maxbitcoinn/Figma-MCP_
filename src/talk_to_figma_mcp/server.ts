@@ -998,6 +998,62 @@ server.tool(
   }
 );
 
+// Get Team Components Tool
+server.tool(
+  "get_team_components",
+  "List published components available from enabled team libraries. Use this to discover remote component keys before importing instances.",
+  {
+    libraryId: z
+      .string()
+      .optional()
+      .describe("Filter to components published by the library with this ID."),
+    libraryName: z
+      .string()
+      .optional()
+      .describe("Filter to libraries whose name matches this value (case-insensitive)."),
+    componentSetKey: z
+      .string()
+      .optional()
+      .describe("Filter to components that belong to a specific component set key."),
+  },
+  async ({ libraryId, libraryName, componentSetKey }: any = {}) => {
+    try {
+      const result = await sendCommandToFigma("get_team_components", {
+        libraryId,
+        libraryName,
+        componentSetKey,
+      });
+
+      const documentation = [
+        "Response structure:",
+        "- count: Total number of matching published components.",
+        "- components: Array of metadata with key, name, description, componentSetKey, libraryId, libraryName, and documentationLinks.",
+        "Use the component key with create_component_instance to import remote instances once the library is enabled in Figma.",
+      ].join("\n");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${documentation}\n\n${JSON.stringify(result, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error getting team components: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
+    }
+  }
+);
+
 // Get Annotations Tool
 server.tool(
   "get_annotations",
@@ -2631,6 +2687,7 @@ type FigmaCommand =
   | "delete_multiple_nodes"
   | "get_styles"
   | "get_local_components"
+  | "get_team_components"
   | "create_component_instance"
   | "get_instance_overrides"
   | "set_instance_overrides"
@@ -2723,7 +2780,11 @@ type CommandParams = {
   };
   get_styles: Record<string, never>;
   get_local_components: Record<string, never>;
-  get_team_components: Record<string, never>;
+  get_team_components: {
+    libraryId?: string;
+    libraryName?: string;
+    componentSetKey?: string;
+  };
   create_component_instance: {
     componentKey: string;
     x: number;
